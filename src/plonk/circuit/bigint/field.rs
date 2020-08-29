@@ -3078,6 +3078,62 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 mod test {
     use super::*;
     use crate::plonk::circuit::*;
+    
+     #[test]
+    fn test_bigint_enforce_equal() {
+        use crate::bellman::pairing::bn256::{Fq, Bn256, Fr};
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        let init_function = move || {
+            let cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+            cs
+        };
+
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+        for i in 0..100 {
+            let mut cs = init_function();
+
+            let a_f = rng.gen();
+            let a = FieldElement::new_allocated(
+                &mut cs, 
+                Some(a_f), 
+                &params
+            ).unwrap();
+
+            let c_f = rng.gen();
+            let c = FieldElement::new_allocated(
+                &mut cs, 
+                Some(c_f), 
+                &params
+            ).unwrap();
+
+            let a_const = FieldElement::new_constant(
+                a_f, 
+                &params
+            );
+
+            let b = FieldElement::new_allocated(
+                &mut cs, 
+                Some(a_f), 
+                &params
+            ).unwrap();
+
+            a.enforce_equal(&mut cs, &c).unwrap();
+
+            b.enforce_equal(&mut cs, &a).unwrap();
+            a.enforce_equal(&mut cs, &a_const).unwrap();
+
+            let (ab, (a, b)) = a.add(&mut cs, b).unwrap();
+            let (ba, (b, a)) = b.add(&mut cs, a).unwrap();
+
+            ab.enforce_equal(&mut cs, &ba).unwrap();
+
+            assert!(cs.is_satisfied());
+        }
+    }
 
     #[test]
     fn test_bn_254() {
