@@ -3090,6 +3090,7 @@ mod test {
             cs
         };
 
+
         use rand::{XorShiftRng, SeedableRng, Rng};
         let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
 
@@ -3102,6 +3103,7 @@ mod test {
                 Some(a_f), 
                 &params
             ).unwrap();
+
 
             let c_f = rng.gen();
             let c = FieldElement::new_allocated(
@@ -3121,13 +3123,15 @@ mod test {
                 &params
             ).unwrap();
 
-            a.enforce_equal(&mut cs, &c).unwrap();
+            println!("{:?}",a_const);
+
+            //a.enforce_equal(&mut cs, &c).unwrap();
 
             b.enforce_equal(&mut cs, &a).unwrap();
-            a.enforce_equal(&mut cs, &a_const).unwrap();
+            //a.enforce_equal(&mut cs, &a_const).unwrap();
 
-            let (ab, (a, b)) = a.add(&mut cs, b).unwrap();
-            let (ba, (b, a)) = b.add(&mut cs, a).unwrap();
+            let (ab, (a, b)) = a.mul(&mut cs, b).unwrap();
+            let (ba, (b, a)) = b.mul(&mut cs, a).unwrap();
 
             ab.enforce_equal(&mut cs, &ba).unwrap();
 
