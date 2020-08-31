@@ -3078,12 +3078,12 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 mod test {
     use super::*;
     use crate::plonk::circuit::*;
-    
-     #[test]
+
+    #[test]
     fn test_bigint_enforce_equal() {
         use crate::bellman::pairing::bn256::{Fq, Bn256, Fr};
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
-
+        println!("Base field modulus: {}, represented field modulus: {}", params.base_field_modulus.to_str_radix(16), params.represented_field_modulus.to_str_radix(16));
         let init_function = move || {
             let cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
@@ -3102,6 +3102,8 @@ mod test {
                 Some(a_f), 
                 &params
             ).unwrap();
+
+            println!("a: {}", a);
 
             let c_f = rng.gen();
             let c = FieldElement::new_allocated(
@@ -3133,6 +3135,50 @@ mod test {
 
             assert!(cs.is_satisfied());
         }
+    }
+
+     #[test]
+    fn test_seven_enforce_equal() {
+        use crate::bellman::pairing::bn256::{Fq, FqRepr, Bn256, Fr};
+        use crate::bellman::pairing::ff::{
+            Field,
+            PrimeField,
+            PrimeFieldRepr,
+            BitIterator
+        };
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+       
+        let init_function = move || {
+            let cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+            cs
+        };
+
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+       
+        let mut cs = init_function();
+
+        let a_f = Fq::from_repr(FqRepr::from(7)).unwrap();
+        let a = FieldElement::new_allocated(
+            &mut cs, 
+            Some(a_f), 
+            &params
+        ).unwrap();
+
+        let b_f = biguint_to_fe::<Fq>(BigUint::from(7u32) + params.base_field_modulus.clone());
+       
+        let b = FieldElement::new_allocated(
+            &mut cs, 
+            Some(a_f), 
+            &params
+        ).unwrap();
+
+        a.enforce_equal(&mut cs, &b).unwrap();
+
+        assert!(cs.is_satisfied());
+      
     }
 
     #[test]
