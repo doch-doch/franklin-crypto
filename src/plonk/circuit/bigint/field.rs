@@ -3171,7 +3171,7 @@ mod test {
        
         let b = FieldElement::new_allocated(
             &mut cs, 
-            Some(a_f), 
+            Some(b_f), 
             &params
         ).unwrap();
 
