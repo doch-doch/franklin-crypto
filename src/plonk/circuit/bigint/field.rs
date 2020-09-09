@@ -3078,12 +3078,12 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
 mod test {
     use super::*;
     use crate::plonk::circuit::*;
-    
-     #[test]
+
+    #[test]
     fn test_bigint_enforce_equal() {
         use crate::bellman::pairing::bn256::{Fq, Bn256, Fr};
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
-
+        println!("Base field modulus: {}, represented field modulus: {}", params.base_field_modulus.to_str_radix(16), params.represented_field_modulus.to_str_radix(16));
         let init_function = move || {
             let cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
 
@@ -3105,6 +3105,8 @@ mod test {
             ).unwrap();
 
 
+            println!("a: {}", a);
+            
             let c_f = rng.gen();
             let c = FieldElement::new_allocated(
                 &mut cs, 
@@ -3137,6 +3139,145 @@ mod test {
 
             assert!(cs.is_satisfied());
         }
+    }
+
+     #[test]
+    fn test_seven_enforce_equal() {
+        use crate::bellman::pairing::bn256::{Fq, FqRepr, Bn256, Fr};
+        use crate::bellman::pairing::ff::{
+            Field,
+            PrimeField,
+            PrimeFieldRepr,
+            BitIterator
+        };
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+       
+        let init_function = move || {
+            let cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+            cs
+        };
+
+        use rand::{XorShiftRng, SeedableRng, Rng};
+        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
+
+       
+        let mut cs = init_function();
+
+        let a_f = Fq::from_repr(FqRepr::from(7)).unwrap();
+
+
+        let a = FieldElement::new_allocated(
+            &mut cs, 
+            Some(a_f), 
+            &params
+        ).unwrap();
+
+        let b_f = biguint_to_fe::<Fq>(BigUint::from(7u32) + params.base_field_modulus.clone());
+       
+        let b = FieldElement::new_allocated(
+            &mut cs, 
+            Some(b_f), 
+            &params
+        ).unwrap();
+
+        let testfuermich = a.base_field_limb.get_value().unwrap();
+
+        println!("base field limb{:?}", testfuermich);
+        println!("Base field modulus: {}, represented field modulus: {}", params.base_field_modulus.to_str_radix(16), params.represented_field_modulus.to_str_radix(16));
+
+        a.enforce_equal(&mut cs, &b).unwrap();
+
+        assert!(cs.is_satisfied());
+      
+    }
+
+    #[test]
+    fn test_compute_congruency() {
+        use crate::bellman::pairing::bn256::{Fq, FqRepr, Bn256, Fr};
+        use crate::bellman::pairing::ff::{
+            Field,
+            PrimeField,
+            PrimeFieldRepr,
+            BitIterator
+        };
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        //Not sure what happens here exactly!
+       
+        let init_function = move || {
+            let cs = TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+        
+            cs
+        };
+       
+        let mut cs = init_function();
+
+        // We compute  a = b mod (r) (or a = x mod(b) ???)  with different a_1, a_2, a_3 and b_1, b_2 of Fq. 
+        
+        let a_f_1 = Fq::from_repr(FqRepr::from(7)).unwrap();
+
+        let a_f_2 = Fq::from_repr(FqRepr::from(64)).unwrap();
+
+        let a_f_3 = Fq::from_repr(FqRepr::from(100)).unwrap();
+
+        
+
+        let a_1 = FieldElement::new_allocated(
+            &mut cs, 
+            Some(a_f_1), 
+            &params
+        ).unwrap();
+
+        let a_2 = FieldElement::new_allocated(
+            &mut cs, 
+            Some(a_f_2), 
+            &params
+        ).unwrap();
+
+        let a_3 = FieldElement::new_allocated(
+            &mut cs, 
+            Some(a_f_3), 
+            &params
+        ).unwrap();
+
+
+
+        let b_f_1 = biguint_to_fe::<Fq>(BigUint::from(7u32)); 
+       
+        let b_1 = FieldElement::new_allocated(
+            &mut cs, 
+            Some(b_f_1), 
+            &params
+        ).unwrap();
+
+        let b_f_2 = biguint_to_fe::<Fq>(BigUint::from(5u32) + params.base_field_modulus.clone());
+       
+        let b_2 = FieldElement::new_allocated(
+            &mut cs, 
+            Some(b_f_2), 
+            &params
+        ).unwrap();
+
+        let test_result_congruence_class_11 = a_1.compute_congruency(& mut cs, & b_1);
+        let test_result_congruence_class_12 = a_1.compute_congruency(& mut cs, & b_2);
+        let test_result_congruence_class_21 = a_2.compute_congruency(& mut cs, & b_1);
+        let test_result_congruence_class_22 = a_2.compute_congruency(& mut cs, & b_2);
+        let test_result_congruence_class_31 = a_3.compute_congruency(& mut cs, & b_1);
+        let test_result_congruence_class_32 = a_3.compute_congruency(& mut cs, & b_2);
+
+
+        
+        println!("The term of compute_congruency of {} with {} is {}", a_f_1, b_f_1, test_result_congruence_class_11.unwrap());
+        println!("The term of compute_congruency of {} with {} is {}", a_f_1, b_f_2, test_result_congruence_class_12.unwrap());
+        println!("The term of compute_congruency of {} with {} is {}", a_f_2, b_f_1, test_result_congruence_class_21.unwrap());
+        println!("The term of compute_congruency of {} with {} is {}", a_f_2, b_f_2, test_result_congruence_class_22.unwrap());
+        println!("The term of compute_congruency of {} with {} is {}", a_f_3, b_f_1, test_result_congruence_class_31.unwrap());
+        println!("The term of compute_congruency of {} with {} is {}", a_f_3, b_f_2, test_result_congruence_class_32.unwrap());
+        
+
+        assert!(cs.is_satisfied());
+      
     }
 
     #[test]
