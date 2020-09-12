@@ -3011,24 +3011,21 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         cs: &mut CS,
         other: &Self,
     ) -> Result<(), SynthesisError> {
-        let mut addition_chain = vec![];
         for (al, bl) in self.binary_limbs.iter().zip(other.binary_limbs.iter()) {
             let mut alc = al.clone();
             alc.negate();
-            addition_chain.push(alc.term);
-            addition_chain.push(bl.term.clone());
-        }
 
-        let mut sum = Term::from_constant(E::Fr::zero());
-        sum = sum.add_multiple(cs, &addition_chain)?;
-        let must_be_zero = sum.collapse_into_num(cs)?;
+            let diff = alc.term.add(cs, &bl.term).unwrap();
 
-        match must_be_zero {
-            Num::Constant(c) => {
-                assert!(c.is_zero());
-            }
-            Num::Variable(var) => {
-                var.assert_equal_to_constant(cs, E::Fr::zero())?;
+            let must_be_zero = diff.collapse_into_num(cs)?;
+
+            match must_be_zero {
+                Num::Constant(c) => {
+                    assert!(c.is_zero());
+                }
+                Num::Variable(var) => {
+                    var.assert_equal_to_constant(cs, E::Fr::zero())?;
+                }
             }
         }
 
@@ -3238,6 +3235,7 @@ mod test {
     fn test_enforce_equal_limb_based() {
         use crate::bellman::pairing::bn256::{Bn256, Fq, FqRepr, Fr};
         use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr};
+        use num_traits::Num;
         use std::panic;
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
 
@@ -3261,6 +3259,13 @@ mod test {
                 BigUint::from(7u32) + q.clone(),
                 BigUint::from(7u32) + BigUint::from(2u32) * q.clone(),
             ),
+            // here one limb in a is exactly the same as another limb in b,  should panic!
+            // (
+            //     // limb0 = 0, limb1=ff
+            //     BigUint::from_str_radix("ff00000000000000000", 16).unwrap(),
+            //     // limb0 = ff, limb1=00
+            //     BigUint::from_str_radix("00000000000000000ff", 16).unwrap(),
+            // ),
         ];
 
         for (a_bi, b_bi) in testcases.iter() {
@@ -3268,6 +3273,7 @@ mod test {
 
             let a = biguint_to_fe::<Fq>(a_bi.clone());
             let a = FieldElement::new_allocated(&mut cs, Some(a), &params).unwrap();
+            println!("a: {}", a);
             let b = biguint_to_fe::<Fq>(b_bi.clone());
             let b = FieldElement::new_allocated(&mut cs, Some(b), &params).unwrap();
 
