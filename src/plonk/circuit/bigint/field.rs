@@ -3006,6 +3006,35 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
         Ok(())
     }
 
+    pub fn enforce_equal_limb_based<CS: ConstraintSystem<E>>(
+        &self,
+        cs: &mut CS,
+        other: &Self,
+    ) -> Result<(), SynthesisError> {
+        let mut addition_chain = vec![];
+        for (al, bl) in self.binary_limbs.iter().zip(other.binary_limbs.iter()) {
+            let mut alc = al.clone();
+            alc.negate();
+            addition_chain.push(alc.term);
+            addition_chain.push(bl.term.clone());
+        }
+
+        let mut sum = Term::from_constant(E::Fr::zero());
+        sum = sum.add_multiple(cs, &addition_chain)?;
+        let must_be_zero = sum.collapse_into_num(cs)?;
+
+        match must_be_zero {
+            Num::Constant(c) => {
+                assert!(c.is_zero());
+            }
+            Num::Variable(var) => {
+                var.assert_equal_to_constant(cs, E::Fr::zero())?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn enforce_not_equal<CS: ConstraintSystem<E>>(
         &self,
         cs: &mut CS,
@@ -3200,6 +3229,49 @@ mod test {
             let (ba, (b, a)) = b.mul(&mut cs, a).unwrap();
 
             ab.enforce_equal(&mut cs, &ba).unwrap();
+
+            assert!(cs.is_satisfied());
+        }
+    }
+
+    #[test]
+    fn test_enforce_equal_limb_based() {
+        use crate::bellman::pairing::bn256::{Bn256, Fq, FqRepr, Fr};
+        use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr};
+        use std::panic;
+        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
+
+        let init_function = move || {
+            let cs =
+                TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
+
+            cs
+        };
+
+        let r = params.base_field_modulus.clone();
+        let q = params.represented_field_modulus.clone();
+
+        let testcases = [
+            (BigUint::from(7u32), BigUint::from(7u32) + q.clone()),
+            (
+                BigUint::from(7u32),
+                BigUint::from(7u32) + BigUint::from(2u32) * q.clone(),
+            ),
+            (
+                BigUint::from(7u32) + q.clone(),
+                BigUint::from(7u32) + BigUint::from(2u32) * q.clone(),
+            ),
+        ];
+
+        for (a_bi, b_bi) in testcases.iter() {
+            let mut cs = init_function();
+
+            let a = biguint_to_fe::<Fq>(a_bi.clone());
+            let a = FieldElement::new_allocated(&mut cs, Some(a), &params).unwrap();
+            let b = biguint_to_fe::<Fq>(b_bi.clone());
+            let b = FieldElement::new_allocated(&mut cs, Some(b), &params).unwrap();
+
+            a.enforce_equal_limb_based(&mut cs, &b).unwrap();
 
             assert!(cs.is_satisfied());
         }
