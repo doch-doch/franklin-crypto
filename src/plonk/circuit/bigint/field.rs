@@ -3015,7 +3015,7 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
             let mut alc = al.clone();
             alc.negate();
 
-            let diff = alc.term.add(cs, &bl.term).unwrap();
+            let diff = alc.term.add(cs, &bl.term)?;
 
             let must_be_zero = diff.collapse_into_num(cs)?;
 
