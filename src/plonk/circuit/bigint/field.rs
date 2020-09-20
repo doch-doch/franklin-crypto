@@ -2987,49 +2987,30 @@ impl<'a, E: Engine, F: PrimeField> FieldElement<'a, E, F> {
     }
 
     pub fn enforce_equal<CS: ConstraintSystem<E>>(
-        &self,
+        self,
         cs: &mut CS,
-        other: &Self,
-    ) -> Result<(), SynthesisError> {
-        let c = self.compute_congruency(cs, other)?;
+        other: Self,
+    ) -> Result<(Self, Self), SynthesisError> {
+        let a = self.force_reduce_into_field(cs)?;
+        let b = other.force_reduce_into_field(cs)?;
 
-        if c.is_constant() {
-            let c = c.get_constant_value();
-            assert!(c.is_zero());
-        } else {
-            let num = c.collapse_into_num(cs)?;
-            let n = num.get_variable();
-
-            n.assert_is_zero(cs)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn enforce_equal_limb_based<CS: ConstraintSystem<E>>(
-        &self,
-        cs: &mut CS,
-        other: &Self,
-    ) -> Result<(), SynthesisError> {
-        for (al, bl) in self.binary_limbs.iter().zip(other.binary_limbs.iter()) {
+        // compare each binary limb
+        for (al, bl) in a.binary_limbs.iter().zip(b.binary_limbs.iter()) {
             let mut alc = al.clone();
             alc.negate();
 
             let diff = alc.term.add(cs, &bl.term)?;
-
-            let must_be_zero = diff.collapse_into_num(cs)?;
-
-            match must_be_zero {
-                Num::Constant(c) => {
-                    assert!(c.is_zero());
-                }
-                Num::Variable(var) => {
-                    var.assert_equal_to_constant(cs, E::Fr::zero())?;
-                }
-            }
+            diff.enforce_zero(cs)?;
         }
 
-        Ok(())
+        // same for base field limb
+        let mut a_base = a.base_field_limb.clone();
+        a_base.negate();
+
+        let diff = a_base.add(cs, &b.base_field_limb)?;
+        diff.enforce_zero(cs)?;
+
+        Ok((a, b))
     }
 
     pub fn enforce_not_equal<CS: ConstraintSystem<E>>(
@@ -3147,94 +3128,6 @@ mod test {
     fn test_enforce_equal() {
         use crate::bellman::pairing::bn256::{Bn256, Fq, FqRepr, Fr};
         use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr};
-        let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
-
-        let init_function = move || {
-            let cs =
-                TrivialAssembly::<Bn256, Width4WithCustomGates, Width4MainGateWithDNext>::new();
-
-            cs
-        };
-
-        use rand::{Rng, SeedableRng, XorShiftRng};
-        let rng = &mut XorShiftRng::from_seed([0x3dbe6259, 0x8d313d76, 0x3237db17, 0xe5bc0654]);
-
-        let r = params.base_field_modulus.clone();
-        let q = params.represented_field_modulus.clone();
-
-        // different combinations of adding moduli and the expected test result
-        let testcases = [
-            (BigUint::from(7u32), BigUint::from(8u32), false),
-            (BigUint::from(7u32), BigUint::from(7u32) + r.clone(), true),
-            (BigUint::from(7u32), BigUint::from(7u32) + q.clone(), true), //false
-            (
-                BigUint::from(7u32),
-                BigUint::from(7u32) + BigUint::from(2u32) * r.clone(),
-                true,
-            ),
-            (
-                BigUint::from(7u32),
-                BigUint::from(7u32) + BigUint::from(2u32) * q.clone(),
-                true,
-            ), //false
-            (
-                BigUint::from(7u32) + q.clone(),
-                BigUint::from(7u32) + r.clone(),
-                true,
-            ), //false
-            (
-                BigUint::from(7u32) + q.clone(),
-                BigUint::from(7u32) + BigUint::from(2u32) * r.clone(),
-                true,
-            ), //false
-            (
-                BigUint::from(7u32) + r.clone(),
-                BigUint::from(7u32) + BigUint::from(2u32) * q.clone(),
-                true,
-            ), //false
-        ];
-
-        for (a_bi, b_bi, result) in &testcases {
-            println!("test enforce equal of a: {}, b: {}", a_bi, b_bi);
-
-            let mut cs = init_function();
-
-            let a_f = rng.gen();
-            let a = FieldElement::new_allocated(&mut cs, Some(a_f), &params).unwrap();
-
-            println!("a: {}", a);
-
-            let c_f = rng.gen();
-            let c = FieldElement::new_allocated(&mut cs, Some(c_f), &params).unwrap();
-
-            let a_const = FieldElement::new_constant(a_f, &params);
-
-            let a = biguint_to_fe::<Fq>(a_bi.clone());
-            let a = FieldElement::new_allocated(&mut cs, Some(a), &params).unwrap();
-
-            let b = biguint_to_fe::<Fq>(b_bi.clone());
-            let b = FieldElement::new_allocated(&mut cs, Some(b), &params).unwrap();
-
-            println!("{:?}", a_const);
-
-            //a.enforce_equal(&mut cs, &c).unwrap();
-
-            b.enforce_equal(&mut cs, &a).unwrap();
-            //a.enforce_equal(&mut cs, &a_const).unwrap();
-
-            let (ab, (a, b)) = a.mul(&mut cs, b).unwrap();
-            let (ba, (b, a)) = b.mul(&mut cs, a).unwrap();
-
-            ab.enforce_equal(&mut cs, &ba).unwrap();
-
-            assert!(cs.is_satisfied());
-        }
-    }
-
-    #[test]
-    fn test_enforce_equal_limb_based() {
-        use crate::bellman::pairing::bn256::{Bn256, Fq, FqRepr, Fr};
-        use crate::bellman::pairing::ff::{BitIterator, Field, PrimeField, PrimeFieldRepr};
         use num_traits::Num;
         use std::panic;
         let params = RnsParameters::<Bn256, Fq>::new_for_field(68, 110, 4);
@@ -3277,7 +3170,7 @@ mod test {
             let b = biguint_to_fe::<Fq>(b_bi.clone());
             let b = FieldElement::new_allocated(&mut cs, Some(b), &params).unwrap();
 
-            a.enforce_equal_limb_based(&mut cs, &b).unwrap();
+            a.enforce_equal(&mut cs, b).unwrap();
 
             assert!(cs.is_satisfied());
         }
@@ -3611,13 +3504,13 @@ mod test {
 
             let b = FieldElement::new_allocated(&mut cs, Some(a_f), &params).unwrap();
 
-            b.enforce_equal(&mut cs, &a).unwrap();
-            a.enforce_equal(&mut cs, &a_const).unwrap();
+            let (b, a) = b.enforce_equal(&mut cs, a).unwrap();
+            let (a, b) = a.enforce_equal(&mut cs, a_const).unwrap();
 
             let (ab, (a, b)) = a.add(&mut cs, b).unwrap();
             let (ba, (b, a)) = b.add(&mut cs, a).unwrap();
 
-            ab.enforce_equal(&mut cs, &ba).unwrap();
+            ab.enforce_equal(&mut cs, ba).unwrap();
 
             assert!(cs.is_satisfied());
         }
@@ -3685,12 +3578,12 @@ mod test {
 
             let n = n.reduction_impl(&mut cs).unwrap();
 
-            n.enforce_equal(&mut cs, &n_const).unwrap();
+            let (n, n_const) = n.enforce_equal(&mut cs, n_const).unwrap();
 
             let (nn, n) = n.negated(&mut cs).unwrap();
             let nn = nn.reduction_impl(&mut cs).unwrap();
 
-            nn.enforce_equal(&mut cs, &a).unwrap();
+            nn.enforce_equal(&mut cs, a).unwrap();
 
             assert!(cs.is_satisfied());
         }
@@ -3840,7 +3733,7 @@ mod test {
             let another =
                 FieldElement::new_allocated(&mut cs, t.get_field_value(), &params).unwrap();
 
-            another.enforce_equal(&mut cs, &t).unwrap();
+            another.enforce_equal(&mut cs, t).unwrap();
 
             assert!(cs.is_satisfied());
         }
@@ -3875,7 +3768,7 @@ mod test {
             let another =
                 FieldElement::new_allocated(&mut cs, t.get_field_value(), &params).unwrap();
 
-            another.enforce_equal(&mut cs, &t).unwrap();
+            another.enforce_equal(&mut cs, t).unwrap();
 
             assert!(cs.is_satisfied());
         }
@@ -3910,7 +3803,7 @@ mod test {
             let another =
                 FieldElement::new_allocated(&mut cs, t.get_field_value(), &params).unwrap();
 
-            another.enforce_equal(&mut cs, &t).unwrap();
+            another.enforce_equal(&mut cs, t).unwrap();
 
             assert!(cs.is_satisfied());
         }
@@ -3963,11 +3856,11 @@ mod test {
 
             let (rrr, rr) = rr.negated(&mut cs).unwrap();
 
-            rrr.enforce_equal(&mut cs, &result).unwrap();
+            let (rrr, result) = rrr.enforce_equal(&mut cs, result).unwrap();
 
             let (rrrr, rrr) = rrr.negated(&mut cs).unwrap();
 
-            rrrr.enforce_equal(&mut cs, &rr).unwrap();
+            rrrr.enforce_equal(&mut cs, rr).unwrap();
 
             if i == 0 {
                 let t0 = a.reduce_if_necessary(&mut cs).unwrap();
